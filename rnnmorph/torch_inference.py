@@ -278,6 +278,69 @@ def load_keras_weights(model: RNNMorphNN, keras_weights_path: str) -> None:
             f['main_pred/main_pred/bias:0'][()])
 
 
+def save_torch_model(model: RNNMorphNN, config: Dict[str, Any],
+                     gram_input_data: Dict, gram_output_data: Dict,
+                     word_vocab, char_set: str, save_path: str) -> None:
+    """
+    Save PyTorch model with all required data to a single .pt file.
+    
+    Args:
+        model: PyTorch model to save
+        config: Model configuration dict
+        gram_input_data: Grammemes input vectorizer data
+        gram_output_data: Grammemes output vectorizer data
+        word_vocab: Word vocabulary object
+        char_set: Character set string
+        save_path: Path to save .pt file
+    """
+    checkpoint = {
+        'model_state_dict': model.state_dict(),
+        'config': config,
+        'gram_input': gram_input_data,
+        'gram_output': gram_output_data,
+        'word_vocabulary': word_vocab,
+        'char_set': char_set,
+    }
+    torch.save(checkpoint, save_path)
+
+
+def load_torch_model(load_path: str, device: str = 'cpu') -> Tuple[RNNMorphNN, Dict, Dict, Dict, Any, str]:
+    """
+    Load PyTorch model from .pt file.
+    
+    Args:
+        load_path: Path to .pt file
+        device: Device to load model to
+        
+    Returns:
+        Tuple of (model, config, gram_input_data, gram_output_data, word_vocab, char_set)
+    """
+    checkpoint = torch.load(load_path, map_location=device, weights_only=False)
+    
+    config = checkpoint['config']
+    gram_input_data = checkpoint['gram_input']
+    gram_output_data = checkpoint['gram_output']
+    word_vocab = checkpoint['word_vocabulary']
+    char_set = checkpoint['char_set']
+    
+    # Recreate model
+    gram_input_size = 56  # Fixed for Russian
+    num_classes = len(gram_output_data['name_to_index']) + 1
+    char_vocab_size = len(char_set) + 1
+    
+    model = RNNMorphNN(
+        config=config,
+        gram_input_size=gram_input_size,
+        num_output_classes=num_classes,
+        char_vocab_size=char_vocab_size
+    )
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.to(device)
+    model.eval()
+    
+    return model, config, gram_input_data, gram_output_data, word_vocab, char_set
+
+
 def _load_lstm_weights(lstm: nn.LSTM, h5: h5py.File, name: str) -> None:
     """Load weights for single LSTM from Keras format."""
     prefix = f'{name}/{name}'
@@ -338,6 +401,7 @@ class RNNMorphInference:
         """
         self.language = language
         self.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+        self.model_dir = model_dir  # Store for save() method
         
         # Load config
         with open(f'{model_dir}/build_config.json', 'r') as f:
@@ -386,6 +450,104 @@ class RNNMorphInference:
 
         self.model.to(self.device)
         self.model.eval()
+
+    def save(self, save_path: str) -> None:
+        """
+        Save model to PyTorch .pt format.
+        
+        Args:
+            save_path: Path to save .pt file
+        """
+        # Load gram data from files
+        with open(f'{self.model_dir}/gram_input.json', 'r') as f:
+            gram_input_data = json.load(f)
+        with open(f'{self.model_dir}/gram_output.json', 'r') as f:
+            gram_output_data = json.load(f)
+        
+        # Save using standalone function
+        save_torch_model(
+            model=self.model,
+            config=self.config,
+            gram_input_data=gram_input_data,
+            gram_output_data=gram_output_data,
+            word_vocab=self.word_vocab,
+            char_set=self.char_set,
+            save_path=save_path
+        )
+        print(f'Model saved to {save_path}')
+
+    @classmethod
+    def from_torch_checkpoint(cls, checkpoint_path: str, 
+                               device: Optional[str] = None) -> 'RNNMorphInference':
+        """
+        Load model from PyTorch .pt checkpoint.
+        
+        Args:
+            checkpoint_path: Path to .pt file
+            device: Device for inference ('cpu', 'cuda', or None for auto)
+            
+        Returns:
+            RNNMorphInference instance
+        """
+        # Create a minimal instance that loads directly from checkpoint
+        instance = cls.__new__(cls)
+        
+        instance.device = device or ('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        # Load checkpoint
+        checkpoint = torch.load(checkpoint_path, map_location=instance.device, weights_only=False)
+        
+        instance.config = checkpoint['config']
+        instance.char_set = checkpoint['char_set']
+        instance.word_vocab = checkpoint['word_vocabulary']
+        instance.gram_output_vectors = checkpoint['gram_output']['vectors']
+        
+        # Initialize morphological analyzer
+        instance.language = 'ru'
+        instance.morph = MorphAnalyzer()
+        instance.converter = converters.converter('opencorpora-int', 'ud14')
+        
+        # Build and load model
+        num_classes = len(checkpoint['gram_output']['name_to_index']) + 1
+        
+        instance.model = RNNMorphNN(
+            config=instance.config,
+            gram_input_size=56,  # Fixed size for Russian
+            num_output_classes=num_classes,
+            char_vocab_size=len(instance.char_set) + 1
+        )
+        instance.model.load_state_dict(checkpoint['model_state_dict'])
+        instance.model.to(instance.device)
+        instance.model.eval()
+        
+        # Create proper vectorizers for feature preparation
+        # Filter out jsonpickle artifacts from all_grammemes
+        gram_input_data = checkpoint['gram_input']
+        gram_output_data = checkpoint['gram_output']
+        
+        # Clean all_grammemes by removing jsonpickle artifacts
+        def clean_grammemes(raw_grammemes):
+            cleaned = {}
+            for key, value in raw_grammemes.items():
+                if key in ('default_factory', 'py/object'):
+                    continue
+                if isinstance(value, dict) and 'py/set' in value:
+                    cleaned[key] = set(value['py/set'])
+                elif isinstance(value, set):
+                    cleaned[key] = value
+            return cleaned
+        
+        instance.gram_vectorizer_input = GrammemeVectorizer()
+        instance.gram_vectorizer_input.name_to_index = gram_input_data['name_to_index']
+        instance.gram_vectorizer_input.all_grammemes = clean_grammemes(gram_input_data['all_grammemes'])
+        instance.gram_vectorizer_input.vectors = gram_input_data['vectors']
+        
+        instance.gram_vectorizer_output = GrammemeVectorizer()
+        instance.gram_vectorizer_output.name_to_index = gram_output_data['name_to_index']
+        instance.gram_vectorizer_output.all_grammemes = clean_grammemes(gram_output_data['all_grammemes'])
+        instance.gram_vectorizer_output.vectors = gram_output_data['vectors']
+        
+        return instance
 
     def _prepare_input(self, sentence: List[str]) -> Tuple[torch.Tensor, torch.Tensor]:
         """Prepare model inputs for a sentence using original BatchGenerator."""

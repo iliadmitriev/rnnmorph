@@ -24,7 +24,7 @@ pip install torch numpy h5py pymorphy2 russian-tagsets
 ```python
 from rnnmorph.torch_inference import RNNMorphInference
 
-# Initialize model
+# Initialize model from Keras weights
 model = RNNMorphInference(
     model_dir="rnnmorph/models/ru",
     language="ru",
@@ -38,6 +38,23 @@ results = model.predict(sentence)
 for result in results:
     print(f"{result['word']}: {result['pos']} - {result['tag']} (score: {result['score']:.4f})")
 ```
+
+### Saving and Loading PyTorch Models
+
+```python
+# Save to PyTorch format (single .pt file)
+model.save("rnnmorph_ru_torch.pt")
+
+# Load from PyTorch checkpoint (no Keras files needed)
+model = RNNMorphInference.from_torch_checkpoint("rnnmorph_ru_torch.pt")
+```
+
+The `.pt` file contains:
+- Model weights (state_dict)
+- Configuration
+- Grammemes vectorizers
+- Word vocabulary
+- Character set
 
 ### Batch Inference
 
