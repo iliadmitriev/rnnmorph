@@ -336,56 +336,61 @@ def download_gikrya_full():
 def convert_conllu_to_rnnmorph(conllu_path, output_path):
     """
     Convert CoNLL-U format to RNNMorph tab-separated format.
-    
+
     CoNLL-U format:
     ID    FORM    LEMMA    UPOS    XPOS    FEATS    HEAD    DEPREL    DEPS    MISC
-    
+
     RNNMorph format:
     FORM    LEMMA    UPOS    FEATS
     """
     print(f"[INFO] Converting {conllu_path.name}...")
-    
+
+    from rnnmorph.data_preparation.process_tag import process_gram_tag
+
     sentences = 0
     words = 0
-    
+
     with open(conllu_path, 'r', encoding='utf-8') as f_in, \
          open(output_path, 'w', encoding='utf-8') as f_out:
-        
+
         for line in f_in:
             line = line.strip()
-            
+
             # Skip comments and empty lines
             if line.startswith('#') or not line:
                 if not line and sentences > 0:
                     f_out.write('\n')  # Sentence separator
                 continue
-            
+
             parts = line.split('\t')
             if len(parts) < 8:
                 continue
-            
+
             # Skip multiword tokens (e.g., "1-2")
             if '-' in parts[0]:
                 continue
-            
+
             try:
                 form = parts[1]
                 lemma = parts[2]
                 upos = parts[3]
                 feats = parts[5]
-                
+
                 # Replace underscore with empty for features
                 if feats == '_':
                     feats = '_'
-                
+                else:
+                    # Normalize features using process_gram_tag
+                    feats = process_gram_tag(feats)
+
                 f_out.write(f"{form}\t{lemma}\t{upos}\t{feats}\n")
                 words += 1
-                
+
             except (IndexError, ValueError) as e:
                 continue
-        
+
         sentences = words // 15  # Rough estimate
-    
+
     print(f"[INFO] Converted: {words:,} words (est. {sentences:,} sentences)")
     return words
 
@@ -413,28 +418,98 @@ def prepare_ud_corpus(ud_path, output_dir):
 def convert_opencorpora_xml_to_rnnmorph(xml_path, output_path):
     """
     Convert OpenCorpora XML format to RNNMorph tab-separated format.
-    
+
     OpenCorpora XML structure (new format):
     <token id="1" text="Школа">
       <tfr rev_id="834910" t="Школа">
         <v>
           <l id="380220" t="школа">
             <g v="NOUN"/><g v="inan"/><g v="femn"/>...
-    
+
     RNNMorph format:
     word<TAB>lemma<TAB>POS<TAB>grammemes
+    
+    Note: OpenCorpora uses bare grammeme values (femn, inan, etc.)
+    that need to be mapped to Category=Value format.
     """
     print(f"[INFO] Converting OpenCorpora XML {xml_path.name}...")
-    
+
     import xml.etree.ElementTree as ET
+    from rnnmorph.data_preparation.process_tag import process_gram_tag
+
+    # Mapping from OpenCorpora bare values to Category=Value format
+    grammemes_mapping = {
+        # Gender
+        'masc': 'Gender=Masc', 'femn': 'Gender=Fem', 'neut': 'Gender=Neut',
+        # Animacy
+        'anim': 'Animacy=Anim', 'inan': 'Animacy=Inan',
+        # Number
+        'sing': 'Number=Sing', 'plur': 'Number=Plur',
+        # Case
+        'nomn': 'Case=Nom', 'gent': 'Case=Gen', 'datv': 'Case=Dat', 
+        'accs': 'Case=Acc', 'ablt': 'Case=Ins', 'loct': 'Case=Loc',
+        'voct': 'Case=Voc',
+        # Tense
+        'pres': 'Tense=Pres', 'past': 'Tense=Past', 'futr': 'Tense=Fut',
+        # Person
+        '1per': 'Person=1', '2per': 'Person=2', '3per': 'Person=3',
+        # Mood
+        'indc': 'Mood=Ind', 'impr': 'Mood=Imp',
+        # VerbForm
+        'infv': 'VerbForm=Inf', 'part': 'VerbForm=Part', 'geru': 'VerbForm=Conv',
+        # Voice
+        'actv': 'Voice=Act', 'pass': 'Voice=Pass',
+        # Aspect
+        'perf': 'Aspect=Perf', 'impf': 'Aspect=Impf',
+        # Transitivity
+        'tran': 'Trans=Tran', 'intr': 'Trans=Intr',
+        # Degree
+        'comp': 'Degree=Cmp',
+        # Variant
+        'long': 'Variant=Long', 'brev': 'Variant=Short',
+        # NameType
+        'name': 'NameType=Pat', 'surn': 'NameType=Sur', 'pnct': 'NameType=Giv',
+    }
     
+    # Mapping from OpenCorpora POS tags to UD format
+    pos_mapping = {
+        'ADJF': 'ADJ',    # Full adjective
+        'ADJS': 'ADJ',    # Short adjective
+        'ADVB': 'ADV',    # Adverb
+        'COMP': 'ADV',    # Comparative
+        'CONJ': 'CCONJ',  # Conjunction
+        'GRND': 'VERB',   # Gerund (keep as VERB, grammemes will specify)
+        'INFN': 'VERB',   # Infinitive (keep as VERB)
+        'INTJ': 'INTJ',   # Interjection
+        'NOUN': 'NOUN',   # Noun
+        'NPRO': 'PRON',   # Pronoun
+        'NUMB': 'NUM',    # Numeral
+        'NUMR': 'NUM',    # Numeral
+        'PNCT': 'PUNCT',  # Punctuation
+        'PRCL': 'PART',   # Particle
+        'PRED': 'ADV',    # Predicate adverb
+        'PREP': 'ADP',    # Preposition
+        'PRTF': 'VERB',   # Participle (keep as VERB)
+        'PRTS': 'VERB',   # Short participle (keep as VERB)
+        'VERB': 'VERB',   # Verb
+        'SYMB': 'SYM',    # Symbol
+        'UNKN': 'X',      # Unknown
+        # Keep these as-is
+        'DATE': 'X',
+        'GREK': 'X',
+        'HANI': 'X',
+        'LATN': 'X',
+        'ROMN': 'X',
+        'TIME': 'X',
+    }
+
     words = 0
     sentences = 0
-    
+
     try:
         tree = ET.parse(xml_path)
         root = tree.getroot()
-        
+
         with open(output_path, 'w', encoding='utf-8') as f_out:
             # Find all tokens in the XML
             for token_elem in root.iter('token'):
@@ -443,12 +518,12 @@ def convert_opencorpora_xml_to_rnnmorph(xml_path, output_path):
                     form = token_elem.get('text', '').strip()
                     if not form:
                         continue
-                    
+
                     # Find lemma and grammemes in tfr/v/l/g elements
                     lemma = ''
                     pos = ''
                     grammemes_list = []
-                    
+
                     tfr_elem = token_elem.find('tfr')
                     if tfr_elem is not None:
                         v_elem = tfr_elem.find('v')
@@ -456,29 +531,38 @@ def convert_opencorpora_xml_to_rnnmorph(xml_path, output_path):
                             l_elem = v_elem.find('l')
                             if l_elem is not None:
                                 lemma = l_elem.get('t', '')
-                                
+
                                 # Get all grammemes from <g> elements
                                 g_elems = l_elem.findall('g')
                                 if g_elems:
                                     pos = g_elems[0].get('v', '')
-                                    # Get all other grammemes
+                                    # Map OpenCorpora POS to UD format
+                                    pos = pos_mapping.get(pos, pos)
+                                    # Get all other grammemes and map them
                                     for g_elem in g_elems[1:]:
-                                        grammemes_list.append(g_elem.get('v', ''))
-                    
+                                        gram_value = g_elem.get('v', '')
+                                        # Map bare value to Category=Value format
+                                        mapped = grammemes_mapping.get(gram_value.lower(), None)
+                                        if mapped:  # Only add if we have a mapping
+                                            grammemes_list.append(mapped)
+                                        # Skip unmapped bare values (they're rare/special tags)
+
                     grammemes = '|'.join(grammemes_list) if grammemes_list else '_'
-                    
+                    # Normalize grammemes using process_gram_tag
+                    grammemes = process_gram_tag(grammemes)
+
                     if lemma and pos:
                         f_out.write(f"{form}\t{lemma}\t{pos}\t{grammemes}\n")
                         words += 1
-                    
+
                     # Check for sentence boundary
                     if token_elem.get('text', '').strip() in ['.', '!', '?', '…']:
                         f_out.write('\n')
                         sentences += 1
-                        
+
                 except Exception as e:
                     continue
-        
+
         print(f"[INFO] Converted: {words:,} words, {sentences:,} sentences")
         return words
     except Exception as e:
@@ -539,23 +623,25 @@ def prepare_all_datasets():
     print("\n[STEP 3] Preparing RNC...")
     rnc_dir = RAW_DIR / "RNC_texts"
     rnc_files = []
-    
+
     # Check for RNC files in various formats
     if rnc_dir.exists():
         rnc_files = list(rnc_dir.glob("*.txt"))
-    
+
     # Also check for CoNLL format from unar extraction
     rnc_conll = RAW_DIR / "RNCgoldInUD_Morpho.conll"
     if rnc_conll.exists():
         rnc_files.append(rnc_conll)
-    
+
     if rnc_files:
         rnc_output = PREPARED_DIR / "rnc_texts.txt"
         words = 0
+        from rnnmorph.data_preparation.process_tag import process_gram_tag
+        
         with open(rnc_output, 'w', encoding='utf-8') as f_out:
             for txt_file in rnc_files:
                 print(f"  Processing {txt_file.name}...")
-                
+
                 # Handle CoNLL format
                 if txt_file.suffix == '.conll':
                     with open(txt_file, 'r', encoding='utf-8', errors='ignore') as f_in:
@@ -568,11 +654,13 @@ def prepare_all_datasets():
                                 continue
                             parts = line.split('\t')
                             if len(parts) >= 4:
-                                # Format: empty, word, lemma, POS, grammemes, extra
-                                word = parts[1].strip()
-                                lemma = parts[2].strip()
-                                pos = parts[3].strip()
-                                grammemes = parts[4].strip() if len(parts) > 4 else '_'
+                                # RNC CoNLL format: word, lemma, POS, grammemes, extra
+                                word = parts[0].strip()
+                                lemma = parts[1].strip()
+                                pos = parts[2].strip()
+                                grammemes = parts[3].strip() if len(parts) > 3 else '_'
+                                # Normalize grammemes
+                                grammemes = process_gram_tag(grammemes)
                                 if word and lemma and pos:
                                     f_out.write(f"{word}\t{lemma}\t{pos}\t{grammemes}\n")
                                     words += 1
@@ -583,7 +671,7 @@ def prepare_all_datasets():
                     f_out.write('\n')
                     with open(txt_file, 'r', encoding='utf-8') as f_in:
                         words += sum(1 for line in f_in if line.strip() and not line.startswith('#'))
-        
+
         prepared_files.append(('RNC', rnc_output, words))
         print(f"[INFO] RNC prepared: {words:,} words")
     else:
@@ -593,17 +681,19 @@ def prepare_all_datasets():
     print("\n[STEP 4] Preparing GIKRYA full texts...")
     gikrya_dir = RAW_DIR / "GIKRYA_texts"
     gikrya_files = []
-    
+
     # Check for .txt files in directory
     if gikrya_dir.exists():
         gikrya_files = list(gikrya_dir.glob("*.txt"))
-    
+
     # Also check for .out files (alternative format)
     gikrya_files.extend(list(RAW_DIR.glob("gikrya_new_*.out")))
-    
+
     if gikrya_files:
         gikrya_output = PREPARED_DIR / "gikrya_texts.txt"
         words = 0
+        from rnnmorph.data_preparation.process_tag import process_gram_tag
+        
         with open(gikrya_output, 'w', encoding='utf-8') as f_out:
             for txt_file in gikrya_files:
                 print(f"  Processing {txt_file.name}...")
@@ -619,7 +709,10 @@ def prepare_all_datasets():
                         parts = line.split('\t')
                         if len(parts) >= 4:
                             # Remove word index (first column)
-                            f_out.write(f"{parts[1]}\t{parts[2]}\t{parts[3]}\t{parts[4] if len(parts) > 4 else '_'}\n")
+                            grammemes = parts[4] if len(parts) > 4 else '_'
+                            # Normalize grammemes
+                            grammemes = process_gram_tag(grammemes)
+                            f_out.write(f"{parts[1]}\t{parts[2]}\t{parts[3]}\t{grammemes}\n")
                             words += 1
                         else:
                             f_out.write(f"{line}\n")

@@ -57,6 +57,8 @@ class Loader(object):
         # Заполняем набор символов
         self.char_set |= {ch for ch in text}
         # Заполняем набор возможных выходных тегов.
+        # Process grammemes to normalize tag format
+        grammemes = process_gram_tag(grammemes)
         self.grammeme_vectorizer_output.add_grammemes(pos_tag, grammemes)
         # Заполняем набор возможных входных тегов.
         if self.language == "ru":
