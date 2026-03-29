@@ -65,10 +65,10 @@ class BatchGenerator:
         data = []
         target = []
 
-        words = np.zeros((n,  sentence_max_len), dtype=np.int)
-        grammemes = np.zeros((n, sentence_max_len, grammemes_count), dtype=np.float)
-        chars = np.zeros((n, sentence_max_len, self.build_config.char_max_word_length), dtype=np.int)
-        y = np.zeros((n, sentence_max_len), dtype=np.int)
+        words = np.zeros((n,  sentence_max_len), dtype=np.int64)
+        grammemes = np.zeros((n, sentence_max_len, grammemes_count), dtype=np.float32)
+        chars = np.zeros((n, sentence_max_len, self.build_config.char_max_word_length), dtype=np.int64)
+        y = np.zeros((n, sentence_max_len), dtype=np.int64)
 
         for i, sentence in enumerate(sentences):
             word_indices, gram_vectors, char_vectors = self.get_sample(
@@ -208,4 +208,5 @@ class BatchGenerator:
                         gram_vector_index = self.grammeme_vectorizer_output.get_index_by_name(pos + "#" + tags)
                         last_sentence.append(WordForm(text=word, gram_vector_index=gram_vector_index))
         for index, bucket in enumerate(self.buckets):
-            yield self.__to_tensor(bucket)
+            if bucket:  # Only yield non-empty buckets
+                yield self.__to_tensor(bucket)

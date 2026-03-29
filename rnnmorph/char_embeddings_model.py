@@ -115,8 +115,8 @@ class CharEmbeddingsModel:
 
     @staticmethod
     def prepare_words(vocabulary, char_set, max_word_length):
-        chars = np.zeros((vocabulary.size(), max_word_length), dtype=np.int)
-        y = np.zeros((vocabulary.size(), ), dtype=np.int)
+        chars = np.zeros((vocabulary.size(), max_word_length), dtype=np.int64)
+        y = np.zeros((vocabulary.size(), ), dtype=np.int64)
         for i in range(vocabulary.size()):
             y[i] = i
         for i, word in enumerate(vocabulary.words):
