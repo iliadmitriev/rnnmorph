@@ -7,7 +7,10 @@ from collections import namedtuple
 
 import nltk
 import numpy as np
-from pymorphy2 import MorphAnalyzer
+try:
+    from pymorphy3 import MorphAnalyzer
+except ImportError:
+    from pymorphy2 import MorphAnalyzer
 from russian_tagsets import converters
 
 from rnnmorph.data_preparation.word_vocabulary import WordVocabulary

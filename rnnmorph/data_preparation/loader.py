@@ -5,7 +5,10 @@
 from typing import List
 
 import nltk
-from pymorphy2 import MorphAnalyzer
+try:
+    from pymorphy3 import MorphAnalyzer
+except ImportError:
+    from pymorphy2 import MorphAnalyzer
 from russian_tagsets import converters
 
 from rnnmorph.data_preparation.grammeme_vectorizer import GrammemeVectorizer

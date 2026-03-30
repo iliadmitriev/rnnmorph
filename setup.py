@@ -20,7 +20,8 @@ setup(
         'scikit-learn>=0.18.1',
         'keras>=2.1.4',
         'h5py>=2.7.0',
-        'pymorphy2>=0.8',
+        'pymorphy3>=2.0',  # Python 3.12+ compatible, fallback to pymorphy2
+        'pymorphy3-dicts-ru',  # Russian dictionary for pymorphy3
         'russian-tagsets==0.6',
         'tqdm>=4.14.0',
         'jsonpickle>=0.9.4',

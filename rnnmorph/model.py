@@ -6,7 +6,10 @@ from typing import List, Tuple
 import os
 
 import numpy as np
-from pymorphy2 import MorphAnalyzer
+try:
+    from pymorphy3 import MorphAnalyzer
+except ImportError:
+    from pymorphy2 import MorphAnalyzer
 from russian_tagsets import converters
 from keras.layers import Input, Embedding, Dense, LSTM, BatchNormalization, Activation, \
     concatenate, Bidirectional, TimeDistributed, Dropout

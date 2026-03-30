@@ -17,13 +17,18 @@ def tqdm_open(filename, encoding='utf8'):
     def wrapped_line_iterator(fd):
         with tqdm(total=total, unit="B", unit_scale=True, desc=basename(filename), miniters=1) as pb:
             processed_bytes = 0
-            for line in fd:
-                processed_bytes += len(line)
-                if processed_bytes >= 1024 * 1024:
-                    pb.update(processed_bytes)
-                    processed_bytes = 0
-                yield line
-            pb.update(processed_bytes)
+            try:
+                for line in fd:
+                    processed_bytes += len(line.encode('utf-8'))
+                    if processed_bytes >= 1024 * 1024:
+                        pb.update(processed_bytes)
+                        processed_bytes = 0
+                    yield line
+            finally:
+                # Ensure progress bar reaches 100%
+                pb.update(processed_bytes)
+                pb.refresh()  # Force display update
+                pb.close()  # Properly close the bar
 
     with open(filename, encoding=encoding) as fd:
         yield wrapped_line_iterator(fd)

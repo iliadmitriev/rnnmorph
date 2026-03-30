@@ -7,7 +7,10 @@ from collections import defaultdict
 
 import nltk
 import numpy as np
-from pymorphy2 import MorphAnalyzer
+try:
+    from pymorphy3 import MorphAnalyzer
+except ImportError:
+    from pymorphy2 import MorphAnalyzer
 from russian_tagsets import converters
 
 from rnnmorph.model import LSTMMorphoAnalysis
@@ -19,8 +22,12 @@ from rnnmorph.settings import MODELS_PATHS
 
 def pymorphy2_hotfix():
     # src: https://github.com/pymorphy2/pymorphy2/issues/160#issuecomment-1486657176
+    # Also fixes pymorphy3 compatibility with Python 3.12+
     from inspect import getfullargspec
-    from pymorphy2.units.base import BaseAnalyzerUnit
+    try:
+        from pymorphy3.units.base import BaseAnalyzerUnit
+    except ImportError:
+        from pymorphy2.units.base import BaseAnalyzerUnit
 
     def _get_param_names_fixed(klass):
         if klass.__init__ is object.__init__:
